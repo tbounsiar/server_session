@@ -17,8 +17,8 @@ use rand::distributions::Alphanumeric;
 use serde::__private::PhantomData;
 use serde_json::error::Error as JsonError;
 
-use crate::server_session_inner::ServerSessionInner;
-use crate::server_session_state::{ServerSessionState, State};
+use crate::server_session_inner::{CookieSecurity, ServerSessionInner};
+use crate::server_session_state::ServerSessionState;
 use crate::session::{Session, SessionStatus};
 
 lazy_static! {
@@ -28,9 +28,103 @@ lazy_static! {
 pub struct ServerSession(Rc<ServerSessionInner>);
 
 impl ServerSession {
-    pub fn new() -> ServerSession {
+    fn new(inner: ServerSessionInner) -> ServerSession {
         STATE_SERVER.write().unwrap().start();
-        ServerSession(Rc::new(ServerSessionInner::new()))
+        ServerSession(Rc::new(inner))
+    }
+    /// Construct new *signed* `CookieSessionBackend` instance.
+    ///
+    /// Panics if key length is less than 32 bytes.
+    pub fn signed(key: &[u8]) -> ServerSession {
+        ServerSession::new(ServerSessionInner::new(
+            key,
+            CookieSecurity::Signed,
+        ))
+    }
+
+    /// Construct new *private* `ServerSessionBackend` instance.
+    ///
+    /// Panics if key length is less than 32 bytes.
+    pub fn private(key: &[u8]) -> ServerSession {
+        ServerSession::new(ServerSessionInner::new(
+            key,
+            CookieSecurity::Private,
+        ))
+    }
+
+    /// Sets the `path` field in the session cookie being built.
+    pub fn path<S: Into<String>>(mut self, value: S) -> ServerSession {
+        Rc::get_mut(&mut self.0).unwrap().path = value.into();
+        self
+    }
+
+    /// Sets the `name` field in the session cookie being built.
+    pub fn name<S: Into<String>>(mut self, value: S) -> ServerSession {
+        Rc::get_mut(&mut self.0).unwrap().name = value.into();
+        self
+    }
+
+    /// Sets the `domain` field in the session cookie being built.
+    pub fn domain<S: Into<String>>(mut self, value: S) -> ServerSession {
+        Rc::get_mut(&mut self.0).unwrap().domain = Some(value.into());
+        self
+    }
+
+    /// When true, prevents adding session cookies to responses until
+    /// the session contains data. Default is `false`.
+    ///
+    /// Useful when trying to comply with laws that require consent for setting cookies.
+    pub fn lazy(mut self, value: bool) -> ServerSession {
+        Rc::get_mut(&mut self.0).unwrap().lazy = value;
+        self
+    }
+
+    /// Sets the `secure` field in the session cookie being built.
+    ///
+    /// If the `secure` field is set, a cookie will only be transmitted when the
+    /// connection is secure - i.e. `https`
+    pub fn secure(mut self, value: bool) -> ServerSession {
+        Rc::get_mut(&mut self.0).unwrap().secure = value;
+        self
+    }
+
+    /// Sets the `http_only` field in the session cookie being built.
+    pub fn http_only(mut self, value: bool) -> ServerSession {
+        Rc::get_mut(&mut self.0).unwrap().http_only = value;
+        self
+    }
+
+    /// Sets the `same_site` field in the session cookie being built.
+    pub fn same_site(mut self, value: SameSite) -> ServerSession {
+        Rc::get_mut(&mut self.0).unwrap().same_site = Some(value);
+        self
+    }
+
+    /// Sets the `max-age` field in the session cookie being built.
+    pub fn max_age(self, seconds: i64) -> ServerSession {
+        self.max_age_time(time::Duration::seconds(seconds))
+    }
+
+    /// Sets the `max-age` field in the session cookie being built.
+    pub fn max_age_time(mut self, value: time::Duration) -> ServerSession {
+        Rc::get_mut(&mut self.0).unwrap().max_age = Some(value);
+        self
+    }
+
+    /// Sets the `expires` field in the session cookie being built.
+    pub fn expires_in(self, seconds: i64) -> ServerSession {
+        self.expires_in_time(time::Duration::seconds(seconds))
+    }
+
+    /// Sets the `expires` field in the session cookie being built.
+    pub fn expires_in_time(mut self, value: time::Duration) -> ServerSession {
+        Rc::get_mut(&mut self.0).unwrap().expires_in = Some(value);
+        self
+    }
+
+    pub fn set_timeout(self, minutes: u64) -> ServerSession {
+        STATE_SERVER.write().unwrap().set_timeout(minutes);
+        self
     }
 }
 
@@ -89,7 +183,7 @@ impl<S, B: 'static> Service for ServerSessionMiddleware<S>
         } else {
             is_new = true;
             id = inner.generate_id();
-            Session::set_session(State::default(), &mut req);
+            Session::set_session(STATE_SERVER.read().unwrap().new_state(), &mut req);
         }
 
         let fut = self.service.call(req);

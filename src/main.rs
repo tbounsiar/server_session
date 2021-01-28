@@ -19,6 +19,7 @@ async fn index(session: Session) -> Result<&'static str> {
         session.set("counter", count + 1)?;
     } else {
         session.set("counter", 1)?;
+        session.update_timeout(5);
     }
     Ok("Welcome!")
 }
@@ -27,7 +28,9 @@ async fn index(session: Session) -> Result<&'static str> {
 async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
-            .wrap(ServerSession::new())
+            .wrap(ServerSession::signed(&[0; 32])
+                .secure(false)
+                .set_timeout(1))
             .service(index)
     })
         // .workers(1)

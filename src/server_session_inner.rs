@@ -32,28 +32,28 @@ pub enum CookieSecurity {
 }
 
 pub struct ServerSessionInner {
-    name: String,
-    path: String,
+    pub(crate) name: String,
+    pub(crate) path: String,
     security: CookieSecurity,
     key: Key,
-    secure: bool,
-    http_only: bool,
-    lazy: bool,
-    domain: Option<String>,
-    max_age: Option<Duration>,
-    expires_in: Option<Duration>,
-    same_site: Option<SameSite>,
+    pub(crate) secure: bool,
+    pub(crate) http_only: bool,
+    pub(crate) lazy: bool,
+    pub(crate) domain: Option<String>,
+    pub(crate) max_age: Option<Duration>,
+    pub(crate) expires_in: Option<Duration>,
+    pub(crate) same_site: Option<SameSite>,
     status: SessionStatus,
 }
 
 impl ServerSessionInner {
 
-    pub fn new() -> Self {
+    pub fn new(key: &[u8], security: CookieSecurity) -> Self {
         ServerSessionInner {
             name: "actix-session".to_owned(),
             path: "/".to_owned(),
-            security: CookieSecurity::Signed,
-            key: Key::derive_from(&[0; 32]),
+            security,
+            key: Key::derive_from(key),
             lazy: false,
             secure: false,
             http_only: true,

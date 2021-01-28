@@ -23,17 +23,15 @@ pub struct State {
     last_use_time: SystemTime,
 }
 
-impl Default for State {
-    fn default() -> Self {
+impl State {
+    pub fn new(timeout: Duration) -> Self {
         State {
             value: HashMap::new(),
-            timeout: Duration::from_secs(10),
+            timeout,
             last_use_time: SystemTime::now(),
         }
     }
-}
 
-impl State {
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>, Error> {
         if let Some(s) = self.value.get(key) {
             Ok(Some(serde_json::from_str(s)?))
@@ -63,6 +61,10 @@ impl State {
         self.timeout = timeout;
     }
 
+    pub fn timeout(&self) -> Duration {
+        self.timeout
+    }
+
     pub fn update_last_use_time(&mut self) {
         self.last_use_time = SystemTime::now();
     }
@@ -74,6 +76,7 @@ impl State {
 
 pub struct ServerSessionState {
     state: Arc<RwLock<HashMap<String, String>>>,
+    timeout: Duration,
     started: bool,
 }
 
@@ -82,6 +85,7 @@ impl ServerSessionState {
         ServerSessionState {
             state: Arc::new(RwLock::new(HashMap::new())),
             started: false,
+            timeout: Duration::from_secs(30 * 60),
         }
     }
 
@@ -94,6 +98,7 @@ impl ServerSessionState {
             loop {
                 inner.write().unwrap().retain(|key, value| {
                     let state: State = serde_json::from_str(value).unwrap();
+                    println!("timeout {}", state.timeout.as_secs());
                     !state.is_expired()
                 });
                 thread::sleep(Duration::from_secs(1));
@@ -113,6 +118,10 @@ impl ServerSessionState {
         }
     }
 
+    pub fn new_state(&self) -> State {
+        State::new(self.timeout)
+    }
+
     pub fn set_state(&mut self, key: &String, state: &State) -> Result<(), Error> {
         let str = serde_json::to_string(state)?;
         self.state.write().unwrap().insert(key.to_string(), str);
@@ -125,5 +134,9 @@ impl ServerSessionState {
             None => {}
         };
         Ok(())
+    }
+
+    pub fn set_timeout(&mut self, minutes: u64) {
+        self.timeout = Duration::from_secs(minutes * 60)
     }
 }
