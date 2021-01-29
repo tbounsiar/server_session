@@ -1,21 +1,12 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::cell::{RefCell, RefMut};
-use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::RwLock;
 use std::task::{Context, Poll};
 
 use actix_service::{Service, Transform};
-use actix_web::{Error, HttpMessage, ResponseError};
-use actix_web::cookie::{Cookie, CookieJar, Key, SameSite};
+use actix_web::cookie::{SameSite};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
-use actix_web::http::{header::SET_COOKIE, HeaderValue};
-use derive_more::{Display, From};
 use futures_util::future::{FutureExt, LocalBoxFuture, ok, Ready};
 use lazy_static::lazy_static;
-use rand::distributions::Alphanumeric;
-use serde::__private::PhantomData;
-use serde_json::error::Error as JsonError;
 
 use crate::server_session_inner::{CookieSecurity, ServerSessionInner};
 use crate::server_session_state::ServerSessionState;
@@ -28,6 +19,7 @@ lazy_static! {
 pub struct ServerSession(Rc<ServerSessionInner>);
 
 impl ServerSession {
+
     fn new(inner: ServerSessionInner) -> ServerSession {
         STATE_SERVER.write().unwrap().start();
         ServerSession(Rc::new(inner))
@@ -122,6 +114,8 @@ impl ServerSession {
         self
     }
 
+    /// Set default session timeout
+    ///
     pub fn set_timeout(self, minutes: u64) -> ServerSession {
         STATE_SERVER.write().unwrap().set_timeout(minutes);
         self
@@ -196,12 +190,12 @@ impl<S, B: 'static> Service for ServerSessionMiddleware<S>
                 match Session::get_changes(&mut res) {
                     (SessionStatus::Changed, Some(state))
                     | (SessionStatus::Renewed, Some(state)) => {
-                        res.checked_expr(|res| {
+                        res.checked_expr(|_| {
                             STATE_SERVER.write().unwrap().set_state(&id, &state)
                         })
                     }
                     (SessionStatus::Unchanged, Some(state)) => {
-                        res.checked_expr(|res| {
+                        res.checked_expr(|_| {
                             STATE_SERVER.write().unwrap().set_state(&id, &state)
                         })
                     }

@@ -1,16 +1,12 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::thread;
-use std::thread::{JoinHandle, sleep};
 use std::time::Duration;
 use std::time::SystemTime;
 
 use actix_web::Error;
 use serde;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use serde_millis;
 
@@ -21,6 +17,12 @@ pub struct State {
     timeout: Duration,
     #[serde(with = "serde_millis")]
     last_use_time: SystemTime,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        State::new(Duration::from_secs(30 * 60))
+    }
 }
 
 impl State {
@@ -40,9 +42,8 @@ impl State {
         }
     }
 
-    pub fn set<T: Serialize>(&mut self, key: &str, value: &T) -> Result<(), Error> {
-        self.value.insert(key.to_owned(), serde_json::to_string(value)?);
-        Ok(())
+    pub fn set<T: Serialize>(&mut self, key: &str, value: &T) {
+        self.value.insert(key.to_owned(), serde_json::to_string(value).unwrap());
     }
 
     pub fn remove(&mut self, key: &str) {
@@ -93,10 +94,10 @@ impl ServerSessionState {
         if self.started {
             return;
         }
-        let mut inner = self.state.clone();
+        let inner = self.state.clone();
         thread::spawn(move || {
             loop {
-                inner.write().unwrap().retain(|key, value| {
+                inner.write().unwrap().retain(|_, value| {
                     let state: State = serde_json::from_str(value).unwrap();
                     println!("timeout {}", state.timeout.as_secs());
                     !state.is_expired()
@@ -128,12 +129,8 @@ impl ServerSessionState {
         Ok(())
     }
 
-    pub fn remove_state(&mut self, key: &String) -> Result<(), Error> {
-        match self.state.clone().write().unwrap().remove(key) {
-            Some(s) => {}
-            None => {}
-        };
-        Ok(())
+    pub fn remove_state(&mut self, key: &String) {
+        self.state.clone().write().unwrap().remove(key).unwrap();
     }
 
     pub fn set_timeout(&mut self, minutes: u64) {

@@ -1,5 +1,4 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -47,18 +46,10 @@ impl Default for SessionStatus {
     }
 }
 
+#[derive(Default)]
 struct SessionInner {
     state: State,
     pub status: SessionStatus,
-}
-
-impl SessionInner {
-    pub fn new(timeout: Duration) -> SessionInner {
-        SessionInner {
-            state: State::new(timeout),
-            status: SessionStatus::default(),
-        }
-    }
 }
 
 pub struct Session(Rc<RefCell<SessionInner>>);
@@ -77,14 +68,6 @@ impl Session {
             inner.state.set(key, &value);
         }
         Ok(())
-    }
-
-    pub fn update_timeout(&self, minutes: u64) {
-        let mut inner = self.0.borrow_mut();
-        if inner.status != SessionStatus::Purged {
-            inner.status = SessionStatus::Changed;
-            inner.state.update_timeout(Duration::from_secs(minutes * 60));
-        }
     }
 
     /// Remove value from the session.
@@ -120,6 +103,15 @@ impl Session {
         }
     }
 
+    /// Update the session timeout
+    pub fn update_timeout(&self, minutes: u64) {
+        let mut inner = self.0.borrow_mut();
+        if inner.status != SessionStatus::Purged {
+            inner.status = SessionStatus::Changed;
+            inner.state.update_timeout(Duration::from_secs(minutes * 60));
+        }
+    }
+
     /// Adds the given key-value pairs to the session on the request.
     ///
     /// Values that match keys already existing on the session will be overwritten. Values should
@@ -138,7 +130,7 @@ impl Session {
     ///     &mut req,
     /// );
     /// ```
-    pub fn set_session(
+    pub(crate) fn set_session(
         data: State,
         req: &mut ServiceRequest,
     ) {
@@ -148,7 +140,7 @@ impl Session {
         inner.state.extend(data);
     }
 
-    pub fn get_changes<B>(
+    pub(crate) fn get_changes<B>(
         res: &mut ServiceResponse<B>,
     ) -> (
         SessionStatus,
@@ -172,7 +164,7 @@ impl Session {
         if let Some(s_impl) = extensions.get::<Rc<RefCell<SessionInner>>>() {
             return Session(Rc::clone(&s_impl));
         }
-        let inner = Rc::new(RefCell::new(SessionInner::new(Duration::from_secs(10))));
+        let inner = Rc::new(RefCell::new(SessionInner::default()));
         extensions.insert(inner.clone());
         Session(inner)
     }

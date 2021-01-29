@@ -1,17 +1,12 @@
-use std::collections::HashMap;
-
 use actix_web::{Error, HttpMessage, ResponseError};
 use actix_web::cookie::{Cookie, CookieJar, Key, SameSite};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::http::header::SET_COOKIE;
 use actix_web::http::HeaderValue;
 use derive_more::{Display, From};
-use rand::{Rng, thread_rng};
-use rand::distributions::Alphanumeric;
+use rand::Rng;
 use serde_json::error::Error as JsonError;
 use time::{Duration, OffsetDateTime};
-
-use crate::session::SessionStatus;
 
 /// Errors that can occur during handling cookie session
 #[derive(Debug, From, Display)]
@@ -34,7 +29,6 @@ pub enum CookieSecurity {
 pub struct ServerSessionInner {
     pub(crate) name: String,
     pub(crate) path: String,
-    security: CookieSecurity,
     key: Key,
     pub(crate) secure: bool,
     pub(crate) http_only: bool,
@@ -43,16 +37,13 @@ pub struct ServerSessionInner {
     pub(crate) max_age: Option<Duration>,
     pub(crate) expires_in: Option<Duration>,
     pub(crate) same_site: Option<SameSite>,
-    status: SessionStatus,
 }
 
 impl ServerSessionInner {
-
-    pub fn new(key: &[u8], security: CookieSecurity) -> Self {
+    pub fn new(key: &[u8]) -> Self {
         ServerSessionInner {
             name: "actix-session".to_owned(),
             path: "/".to_owned(),
-            security,
             key: Key::derive_from(key),
             lazy: false,
             secure: false,
@@ -61,32 +52,16 @@ impl ServerSessionInner {
             max_age: None,
             expires_in: None,
             same_site: None,
-            status: SessionStatus::Unchanged,
         }
-    }
-
-    fn set_status(&mut self, status: SessionStatus) {
-        self.status = status;
     }
 
     pub fn get_session_id(&self, req: &ServiceRequest) -> (bool, String) {
         if let Ok(cookies) = req.cookies() {
             for cookie in cookies.iter() {
                 if cookie.name() == self.name {
-                    let mut jar = CookieJar::new();
-                    jar.add_original(cookie.clone());
-
-                    let cookie_opt = match self.security {
-                        CookieSecurity::Signed => jar.signed(&self.key).get(&self.name),
-                        CookieSecurity::Private => {
-                            jar.private(&self.key).get(&self.name)
-                        }
-                    };
-                    if let Some(cookie) = cookie_opt {
-                        if let val = cookie.value() {
-                            let key = val.to_string();
-                            return (false, key);
-                        }
+                    if let val = cookie.value() {
+                        let key = val.to_string();
+                        return (false, key);
                     }
                 }
             }
@@ -111,9 +86,6 @@ impl ServerSessionInner {
         if self.lazy && value.is_empty() {
             return Ok(());
         }
-        if value.len() > 4064 {
-            return Err(CookieSessionError::Overflow.into());
-        }
 
         let mut cookie = Cookie::new(self.name.clone(), value);
         cookie.set_path(self.path.clone());
@@ -136,17 +108,8 @@ impl ServerSessionInner {
             cookie.set_same_site(same_site);
         }
 
-        let mut jar = CookieJar::new();
-
-        match self.security {
-            CookieSecurity::Signed => jar.signed(&self.key).add(cookie),
-            CookieSecurity::Private => jar.private(&self.key).add(cookie),
-        }
-
-        for cookie in jar.delta() {
-            let val = HeaderValue::from_str(&cookie.encoded().to_string())?;
-            res.headers_mut().append(SET_COOKIE, val);
-        }
+        let val = HeaderValue::from_str(&cookie.to_string())?;
+        res.headers_mut().append(SET_COOKIE, val);
 
         Ok(())
     }
